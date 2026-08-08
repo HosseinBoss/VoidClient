@@ -1,26 +1,36 @@
 package com.v2ray.ang.ui.main
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.v2ray.ang.dto.GroupMapItem
 import com.v2ray.ang.dto.entities.ServersCache
-import com.v2ray.ang.ui.compose.colorFabActive
+import com.v2ray.ang.ui.compose.colorBrandAccent
 import kotlinx.coroutines.flow.StateFlow
 
+/**
+ * Group tabs rendered as rounded pill chips (V2Box / v2rayTun style) instead
+ * of an underline-indicator TabRow.
+ */
 @Composable
 fun GroupTabBar(
     groups: List<GroupMapItem>,
@@ -29,40 +39,30 @@ fun GroupTabBar(
     onTabClick: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    PrimaryScrollableTabRow(
-        selectedTabIndex = selectedTabIndex.coerceIn(0, groups.lastIndex),
-        modifier = modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        edgePadding = 16.dp,
-        minTabWidth = 56.dp,
-        indicator = {
-            TabRowDefaults.PrimaryIndicator(
-                modifier = Modifier
-                    .tabIndicatorOffset(
-                        selectedTabIndex = selectedTabIndex.coerceIn(0, groups.lastIndex),
-                        matchContentSize = true
-                    )
-                    .clip(RoundedCornerShape(3.dp)),
-                width = Dp.Unspecified,
-                color = colorFabActive
-            )
-        },
-        divider = {}
+    val scrollState = rememberScrollState()
+    val coercedSelected = selectedTabIndex.coerceIn(0, groups.lastIndex.coerceAtLeast(0))
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
         groups.forEachIndexed { index, group ->
-            GroupTabItem(
+            GroupTabChip(
                 group = group,
-                selected = index == selectedTabIndex,
+                selected = index == coercedSelected,
                 serverFlowProvider = { mainViewModel.serversForGroup(group.id) },
                 onClick = { onTabClick(index) }
             )
+            if (index != groups.lastIndex) {
+                Spacer(modifier = Modifier.width(8.dp))
+            }
         }
     }
 }
 
 @Composable
-private fun GroupTabItem(
+private fun GroupTabChip(
     group: GroupMapItem,
     selected: Boolean,
     serverFlowProvider: () -> StateFlow<List<ServersCache>>,
@@ -70,21 +70,25 @@ private fun GroupTabItem(
 ) {
     val serverFlow = remember(group.id) { serverFlowProvider() }
     val servers by serverFlow.collectAsStateWithLifecycle()
-    Tab(
-        selected = selected,
-        onClick = onClick,
-        text = {
-            val text = if (group.id.isEmpty()) {
-                group.remarks
-            } else {
-                "${group.remarks} (${servers.size})"
-            }
-            Text(
-                text = text,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+    val text = if (group.id.isEmpty()) {
+        group.remarks
+    } else {
+        "${group.remarks} (${servers.size})"
+    }
+    val shape = RoundedCornerShape(20.dp)
+
+    Text(
+        text = text,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier
+            .clip(shape)
+            .background(if (selected) colorBrandAccent else MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     )
 }
