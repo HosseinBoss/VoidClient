@@ -3,6 +3,7 @@ package com.v2ray.ang.ui.main
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -32,7 +35,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -83,9 +88,19 @@ fun GroupPagerPage(
         mainViewModel.serversForGroup(groupId)
     }
     val servers by serverFlow.collectAsStateWithLifecycle()
-    val canReorder = groupId.isNotEmpty() && searchQuery.isEmpty()
+    var selectedFilter by remember(groupId) { mutableStateOf(ServerFilter.All) }
+    val canReorder = groupId.isNotEmpty() && searchQuery.isEmpty() && selectedFilter == ServerFilter.All
+    val filteredServers = remember(servers, selectedFilter) {
+        applyServerFilter(servers, selectedFilter)
+    }
+    Column(Modifier.fillMaxSize()) {
+    ServerFilterChips(
+        selected = selectedFilter,
+        onSelect = { selectedFilter = it }
+    )
+    Box(Modifier.weight(1f).fillMaxWidth()) {
     ServerListPage(
-        servers = servers,
+        servers = filteredServers,
         selectedGuid = selectedGuid,
         canReorder = canReorder,
         doubleColumnDisplay = doubleColumnDisplay,
@@ -102,6 +117,8 @@ fun GroupPagerPage(
         onMoveServer = { fromIndex, toIndex -> mainViewModel.moveServer(groupId, fromIndex, toIndex) },
         contentPadding = contentPadding
     )
+    }
+    }
 }
 
 @Composable
@@ -294,6 +311,25 @@ private fun ServerItemColumn(
     )
 }
 
+private fun leadingFlagEmoji(remarks: String): String? {
+    if (remarks.length < 2) return null
+    val codePoints = remarks.codePoints().toArray()
+    if (codePoints.size < 2) return null
+    val isRegionalIndicator = { cp: Int -> cp in 0x1F1E6..0x1F1FF }
+    return if (isRegionalIndicator(codePoints[0]) && isRegionalIndicator(codePoints[1])) {
+        String(codePoints, 0, 2)
+    } else {
+        null
+    }
+}
+
+private fun pingQualityLabel(testDelayMillis: Long): String? = when {
+    testDelayMillis <= 0L -> null // untested or timeout is already conveyed by the result text
+    testDelayMillis < 150L -> "Excellent"
+    testDelayMillis < 400L -> "Good"
+    else -> "Poor"
+}
+
 @Composable
 fun ServerListItem(
     remarks: String,
@@ -317,6 +353,10 @@ fun ServerListItem(
         colorBrandAccent.copy(alpha = 0.14f)
     } else {
         MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val flagEmoji = remember(remarks) { leadingFlagEmoji(remarks) }
+    val displayTitle = remember(remarks, flagEmoji) {
+        if (flagEmoji != null) remarks.removePrefix(flagEmoji).trimStart() else remarks
     }
 
     Box(
@@ -343,7 +383,10 @@ fun ServerListItem(
                     .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp)
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(remarks, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge.copy(lineBreak = LineBreak.Paragraph), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (flagEmoji != null) {
+                        Text(flagEmoji, fontSize = 18.sp, modifier = Modifier.padding(end = 6.dp))
+                    }
+                    Text(displayTitle, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge.copy(lineBreak = LineBreak.Paragraph), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (doubleColumnDisplay) {
                         IconButton(onClick = onMore, Modifier.size(36.dp)) {
                             Icon(painterResource(R.drawable.ic_more_vert_24dp), null, Modifier.size(24.dp))
@@ -389,6 +432,9 @@ fun ServerListItem(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(testResult, style = MaterialTheme.typography.bodySmall, color = pingColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        pingQualityLabel(testDelayMillis)?.let { quality ->
+                            Text(" \u00b7 $quality", style = MaterialTheme.typography.bodySmall, color = pingColor.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
@@ -412,6 +458,61 @@ private fun getProtocolDescription(profile: ProfileItem): String {
         }
     }
     return parts.joinToString(" / ")
+}
+
+private enum class ServerFilter(val label: String) {
+    All("All"),
+    Fastest("Fastest"),
+    Tls("TLS"),
+    Reality("Reality"),
+    Other("Other")
+}
+
+private fun applyServerFilter(servers: List<ServersCache>, filter: ServerFilter): List<ServersCache> {
+    fun type(s: ServersCache) = getProtocolDescription(s.profile).lowercase()
+    return when (filter) {
+        ServerFilter.All -> servers
+        ServerFilter.Fastest -> servers.filter { it.testDelayMillis > 0L }.sortedBy { it.testDelayMillis }
+        ServerFilter.Tls -> servers.filter { type(it).contains("tls") }
+        ServerFilter.Reality -> servers.filter { type(it).contains("reality") }
+        ServerFilter.Other -> servers.filter { !type(it).contains("tls") && !type(it).contains("reality") }
+    }
+}
+
+@Composable
+private fun ServerFilterChips(
+    selected: ServerFilter,
+    onSelect: (ServerFilter) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ServerFilter.values().forEach { filter ->
+            val isSelected = filter == selected
+            Text(
+                text = filter.label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isSelected) colorBrandAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(
+                        if (isSelected) colorBrandAccent.copy(alpha = 0.16f)
+                        else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                    .then(
+                        if (isSelected) Modifier.border(1.dp, colorBrandAccent, RoundedCornerShape(20.dp))
+                        else Modifier
+                    )
+                    .clickable { onSelect(filter) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
+    }
 }
 
 internal suspend fun PagerState.navigateToPageOptimized(

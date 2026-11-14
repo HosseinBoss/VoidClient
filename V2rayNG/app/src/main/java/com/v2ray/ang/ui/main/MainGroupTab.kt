@@ -83,7 +83,7 @@ private fun GroupTabChip(
         softWrap = false,
         overflow = TextOverflow.Ellipsis,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+        color = if (selected) Color(0xFF06222A) else MaterialTheme.colorScheme.onSurfaceVariant,
         style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier
             .clip(shape)

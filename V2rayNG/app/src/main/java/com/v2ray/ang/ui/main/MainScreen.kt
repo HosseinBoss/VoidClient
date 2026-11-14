@@ -1,5 +1,6 @@
 package com.v2ray.ang.ui.main
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -54,6 +56,9 @@ fun MainScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showSearch by remember { mutableStateOf(false) }
+    var currentTab by rememberSaveable { mutableStateOf(MainTab.Home) }
+    val traffic = rememberTrafficSession(isRunning)
+    BackHandler(enabled = currentTab != MainTab.Home) { currentTab = MainTab.Home }
     var searchQuery by remember { mutableStateOf("") }
     var showDelAllConfirm by remember { mutableStateOf(false) }
     var showDelDuplicateConfirm by remember { mutableStateOf(false) }
@@ -200,7 +205,7 @@ fun MainScreen(
         Scaffold(
             contentWindowInsets = ScaffoldDefaults.contentWindowInsets,
             topBar = {
-                MainTopBar(
+                if (currentTab == MainTab.Servers) MainTopBar(
                     isLoading = isLoading,
                     showSearch = showSearch,
                     searchQuery = searchQuery,
@@ -233,29 +238,49 @@ fun MainScreen(
                 )
             },
             bottomBar = {
-                MainBottomBar(
-                    displayText = displayText,
-                    isRunning = isRunning,
-                    isDarkTheme = isDarkTheme,
-                    onAction = onAction
+                MainNavBar(
+                    selected = currentTab,
+                    onSelect = { tab ->
+                        if (tab == MainTab.Settings) {
+                            onNavigate(MainDestination.Settings)
+                        } else {
+                            currentTab = tab
+                        }
+                    }
                 )
             },
             floatingActionButton = {},
         ) { innerPadding ->
             val layoutDirection = LocalLayoutDirection.current
 
-            if (groups.isNotEmpty()) {
+            when (currentTab) {
+                MainTab.Home -> HomeScreen(
+                    isRunning = isRunning,
+                    selectedGuid = selectedGuid,
+                    isTesting = uiState.isTesting,
+                    statusText = displayText,
+                    traffic = traffic,
+                    contentPadding = innerPadding,
+                    onToggle = { onAction(MainAction.ToggleService) },
+                    onOpenServers = { currentTab = MainTab.Servers },
+                    onTestServer = { onAction(MainAction.TestCurrentServer) },
+                    onOpenMenu = { scope.launch { drawerState.open() } },
+                    onScanQr = { onAction(MainAction.ImportQRcode) }
+                )
+                MainTab.Stats -> StatsScreen(
+                    isRunning = isRunning,
+                    traffic = traffic,
+                    contentPadding = innerPadding
+                )
+                MainTab.Servers, MainTab.Settings -> Unit
+            }
+
+            if (currentTab == MainTab.Servers && groups.isNotEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
                 ) {
-                    ConnectHero(
-                        isRunning = isRunning,
-                        statusText = displayText,
-                        onToggle = { onAction(MainAction.ToggleService) }
-                    )
-
                     if (groups.size > 1) {
                         GroupTabBar(
                             groups = groups,
@@ -303,7 +328,7 @@ fun MainScreen(
                                 start = 0.dp,
                                 top = 0.dp,
                                 end = 0.dp,
-                                bottom = 80.dp
+                                bottom = 16.dp
                             )
                         )
                     }
