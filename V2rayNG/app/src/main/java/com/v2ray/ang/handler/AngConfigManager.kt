@@ -127,6 +127,7 @@ object AngConfigManager {
      * @return The result code.
      */
     fun shareFullContent2Clipboard(context: Context, guid: String?): Int {
+        if (DeviceLock.isLockedGuid(guid)) return -1
         try {
             if (guid == null) return -1
             val result = CoreConfigManager.getV2rayConfig(context, guid)
@@ -151,7 +152,7 @@ object AngConfigManager {
     private fun shareConfig(guid: String): String {
         try {
             val config = MmkvManager.decodeServerConfig(guid) ?: return ""
-
+            if (DeviceLock.isLockedProfile(config)) return ""
             return config.configType.protocolScheme + when (config.configType) {
                 EConfigType.VMESS -> VmessFmt.toUri(config)
                 EConfigType.SHADOWSOCKS -> ShadowsocksFmt.toUri(config)
@@ -177,6 +178,7 @@ object AngConfigManager {
      * @return A pair containing the number of configurations and subscriptions imported.
      */
     fun importBatchConfig(server: String?, subid: String, append: Boolean): Pair<Int, Int> {
+         val server = DeviceLock.unwrapForImport(server)
         var count = parseBatchConfig(Utils.decode(server), subid, append)
         if (count <= 0) {
             count = parseBatchConfig(server, subid, append)
